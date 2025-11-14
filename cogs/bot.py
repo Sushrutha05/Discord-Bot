@@ -9,13 +9,12 @@ import re
 
 load_dotenv()
 token = os.getenv('DISCORD_TOKEN')
-leetcode_api = os.getenv('TEMP_LEETCODE_API')
+leetcode_api = os.getenv('LEETCODE_API')
 github_api_fine = os.getenv('GITHUB_API_FINE')
 github_api_gen = os.getenv('GITHUB_API_GEN')
 github_api_url = os.getenv('GITHUB_API_URL')
 available_roles = ["Manual Coder", "Vibe Coder"]
 
-leetcode_registered_users = {}
 
 class LeetcodeCommands(commands.Cog):
     def __init__(self, bot):
@@ -311,8 +310,29 @@ class GithubCommands(commands.Cog):
 
     @commands.command()
     async def github_list(self, ctx):
-        await ctx.send(f"Github List feature coming soon {ctx.author.mention}!")
 
+        conn = None 
+        try:
+            conn = sqlite3.connect('bot_database.db')
+            cursor = conn.cursor()
+
+            sql_query = "SELECT repo_name FROM GITHUB_REPO"
+            cursor.execute(sql_query)
+            rows = cursor.fetchall()
+
+            if not rows:
+                await ctx.send("No repositories found")
+                return
+            
+            repo_list = "\n".join(f"- {row[0]}" for row in rows)[:-4]
+            await ctx.send(f"📁 **Repositories being watched:**\n{repo_list}")
+
+        except Exception as e:
+            await ctx.send(f"An unexpected database error occurred: {e}")
+
+        finally:
+            if conn:
+                conn.close()
 
 
 class RoleCommands(commands.Cog):
@@ -394,7 +414,6 @@ class MiscellaneousCommands(commands.Cog):
     @commands.command()
     async def check(self, ctx):
         await ctx.send(ctx.author.id)
-
 
 
 async def setup(bot):
