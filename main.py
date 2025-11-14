@@ -7,12 +7,6 @@ import asyncio
 import database
 import aiohttp
 
-"""
-# ======= DATABASE SETUP AND CONNECTION ========
-database.setup_database()
-
-"""
-
 load_dotenv()
 token = os.getenv("DISCORD_TOKEN")
 

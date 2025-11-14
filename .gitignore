@@ -6,3 +6,6 @@ todo.txt
 
 #Local API files
 alfa-leetcode-api-main/
+
+#LOG files
+*.log
