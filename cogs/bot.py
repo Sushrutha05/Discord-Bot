@@ -271,13 +271,19 @@ class GithubCommands(commands.Cog):
     @commands.command()
     async def github_watch(self, ctx, repo_url:str):
         if 'github.com/' not in repo_url:
-            return await ctx.send("Please provide valid repo url")
+            return await ctx.send("Please provide a valid repo url")
     
-        repo_name = repo_url.split("github.com/", 1)[1].split("/", 2)[0:2]
-        repo_name = "/".join(repo_name).strip()
+        
+        repo_name_parts = repo_url.split("github.com/", 1)[1].split("/", 2)[0:2]
+        repo_name = "/".join(repo_name_parts).strip()
 
+        
+        repo_name_to_save = repo_name.replace(".git", "")
+        if not repo_name_to_save: 
+            return await ctx.send("Invalid repo name parsed.")
 
-        repo_watch_url = github_api_url + repo_name
+        
+        repo_watch_url = github_api_url + repo_name_to_save 
 
         headers = {
             "User-Agent": "DiscordBot", 
@@ -286,38 +292,37 @@ class GithubCommands(commands.Cog):
 
         async with aiohttp.ClientSession() as session:
             async with session.get(repo_watch_url, headers=headers) as response:
+                
                 if(response.status == 200):
-                    await ctx.send(f"Done. Watching {repo_name}")
+                    
+                    conn = None 
+                    try:
+                        conn = sqlite3.connect('bot_database.db')
+                        cursor = conn.cursor()
+
+                        sql_query = "INSERT INTO GITHUB_REPO (channel_id, repo_name) VALUES (?, ?)"
+
+                        cursor.execute(sql_query, (ctx.channel.id, repo_name_to_save))
+
+                        conn.commit()
+
+
+                        await ctx.send(f"✅ Success! Now watching `{repo_name_to_save}` in this channel.")
+
+                    except sqlite3.IntegrityError:
+                        await ctx.send(f"This repo is already being watched in this channel.")
+                    except Exception as e:
+                        await ctx.send(f"An unexpected database error occurred: {e}")
+                    finally:
+                        if conn:
+                            conn.close()
+
                 elif response.status == 404:
-                    await ctx.send("404")
+                    await ctx.send(f"Error 404: Repo `{repo_name_to_save}` not found.")
+                    return
                 else:
-                    await ctx.send (f"Error: {response.status}")
-
-
-        conn = None 
-        try:
-            conn = sqlite3.connect('bot_database.db')
-            cursor = conn.cursor()
-
-            channel_id_to_save = ctx.channel.id
-            repo_name_to_save = repo_name 
-
-            sql_query = "INSERT INTO GITHUB_REPO (channel_id, repo_name) VALUES (?, ?)"
-            cursor.execute(sql_query, (channel_id_to_save, repo_name_to_save))
-
-            conn.commit()
-
-            await ctx.send(f"✅ Success! Now watching `{repo_name_to_save}` in this channel.")
-
-        except sqlite3.IntegrityError:
-            await ctx.send(f"This repo is already being watched in this channel.")
-
-        except Exception as e:
-            await ctx.send(f"An unexpected database error occurred: {e}")
-
-        finally:
-            if conn:
-                conn.close()
+                    await ctx.send (f"Error: GitHub API returned status {response.status}")
+                    return
 
     @commands.command()
     async def github_unwatch(self, ctx, *, repo_input: str = None):
