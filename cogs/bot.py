@@ -80,7 +80,25 @@ class LeetcodeCommands(commands.Cog):
     @commands.command()
     async def leetcode_stats(self, ctx, *, username:str = None):
         if not username:
-            username = leetcode_registered_users[ctx.author.id]
+            conn = None
+            try:
+                conn = database.get_connection()
+                cursor = conn.cursor()
+
+                sql = f"""
+                SELECT leetcode_username
+                FROM LEETCODE_USER
+                WHERE discord_id = {ctx.author.id}
+                """
+                cursor.execute(sql)
+
+                username = cursor.fetchall()[0][0]
+
+            except Exception as e:
+                await ctx.send(f"An error occured while trying to automatically fetch the leetcode username of {ctx.author.mention}. Please try mentioning the LeetCode username explicitly")
+            finally:
+                if conn:
+                    conn.close()
         
         leetcode_url = leetcode_api + username
 
@@ -154,7 +172,6 @@ class LeetcodeCommands(commands.Cog):
 
     @commands.command()
     async def leetcode_leaderboard(self, ctx):
-        print("The leaderboard is: ")
         conn = None
 
         try:
