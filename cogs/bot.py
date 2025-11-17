@@ -78,97 +78,134 @@ class LeetcodeCommands(commands.Cog):
         
 
     @commands.command()
-    async def leetcode_stats(self, ctx, *, username:str = None):
-        if not username:
+    async def leetcode_stats(self, ctx, *, username: str = None):
+
+        async def fetch_from_db(discord_id: int):
             conn = None
             try:
                 conn = database.get_connection()
                 cursor = conn.cursor()
 
-                sql = f"""
+                sql = """
                 SELECT leetcode_username
                 FROM LEETCODE_USER
-                WHERE discord_id = {ctx.author.id}
+                WHERE discord_id = %s
                 """
-                cursor.execute(sql)
+                cursor.execute(sql, (discord_id,))
+                result = cursor.fetchone()
+                return result[0] if result else None
 
-                username = cursor.fetchall()[0][0]
+            except Exception:
+                return None
 
-            except Exception as e:
-                await ctx.send(f"An error occured while trying to automatically fetch the leetcode username of {ctx.author.mention}. Please try mentioning the LeetCode username explicitly")
             finally:
                 if conn:
                     conn.close()
+
+
+        async def fetch_json(session, url: str):
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                if resp.status == 404:
+                    return "not_found"
+                return f"error:{resp.status}"
+
+
         
-        leetcode_url = leetcode_api + username
+        if not username:
+            username = await fetch_from_db(ctx.author.id)
+            if not username:
+                await ctx.send(
+                    "I couldn't find a linked LeetCode username for you. "
+                    "Please provide it explicitly."
+                )
+                return
 
-        leetcode_url_solved = leetcode_url + '/solved'
+        
+        profile_url = leetcode_api + username
+        solved_url = profile_url + "/solved"
 
-
-        name = None
-        ranking = 'N/A'
-        reputation = 'N/A'
-        total_sub_result_string = ""
-        ac_result_string = ""
+        
+        name = "N/A"
+        ranking = "N/A"
+        reputation = "N/A"
         solved_total = "N/A"
         easy_solved = "N/A"
         medium_solved = "N/A"
         hard_solved = "N/A"
+        total_sub_string = ""
+        ac_sub_string = ""
 
         async with aiohttp.ClientSession() as session:
 
-            async with session.get(leetcode_url) as response:
-                if response.status == 200:   
-                    json_response = await response.json()
-                    name = json_response.get('name')
-                    ranking = json_response.get('ranking')
-                    reputation = json_response.get('reputation')
-                elif response.status == 404:
-                    await ctx.send(f"Error: LeetCode user '{username}' not found.")
-                    return
-                else:
-                    await ctx.send(f"Error: The API is down or returned an error. (Status: {response.status})")
-                    return
+            # --- Profile data ---
+            prof = await fetch_json(session, profile_url)
+            if prof == "not_found":
+                await ctx.send(f"LeetCode user **{username}** not found.")
+                return
+            if isinstance(prof, str) and prof.startswith("error"):
+                code = prof.split(":")[1]
+                await ctx.send(f"LeetCode API error. (Status: {code})")
+                return
 
+            name = prof.get("name", "N/A")
+            ranking = prof.get("ranking", "N/A")
+            reputation = prof.get("reputation", "N/A")
 
-            async with session.get(leetcode_url_solved) as response:
-                if response.status == 200:   
-                    json_response = await response.json()
-                    solved_total = json_response.get('solvedProblem', 'N/A')
-                    easy_solved = json_response.get('easySolved', 'N/A')
-                    medium_solved = json_response.get('mediumSolved', 'N/A')
-                    hard_solved = json_response.get('hardSolved', 'N/A')
+            # --- Solved stats ---
+            solved = await fetch_json(session, solved_url)
+            if solved == "not_found":
+                await ctx.send(f"LeetCode user **{username}** not found.")
+                return
+            if isinstance(solved, str) and solved.startswith("error"):
+                code = solved.split(":")[1]
+                await ctx.send(f"LeetCode API error. (Status: {code})")
+                return
 
-                    for item in json_response.get('totalSubmissionNum', []):
-                        total_sub_result_string += f"**{item['difficulty']}**: {item['count']} , {item['submissions']} submissions.\n"
+            solved_total = solved.get("solvedProblem", "N/A")
+            easy_solved = solved.get("easySolved", "N/A")
+            medium_solved = solved.get("mediumSolved", "N/A")
+            hard_solved = solved.get("hardSolved", "N/A")
 
-                    for item in json_response.get('acSubmissionNum', []):
-                        ac_result_string += f"**{item['difficulty']}**: {item['count']} , {item['submissions']} submissions.\n"
+            for item in solved.get("totalSubmissionNum", []):
+                diff = item.get("difficulty", "N/A")
+                count = item.get("count", "N/A")
+                subs = item.get("submissions", "N/A")
+                total_sub_string += f"**{diff}**: {count}, {subs} submissions.\n"
 
-                elif response.status == 404:
-                    await ctx.send(f"Error: LeetCode user '{username}' not found.")
-                    return
-                else:
-                    
-                    await ctx.send(f"Error: The API is down or returned an error. (Status: {response.status})")
-                    return
+            for item in solved.get("acSubmissionNum", []):
+                diff = item.get("difficulty", "N/A")
+                count = item.get("count", "N/A")
+                subs = item.get("submissions", "N/A")
+                ac_sub_string += f"**{diff}**: {count}, {subs} submissions.\n"
 
-            embed = discord.Embed(
-                title= f"{username}'s LeetCode Stats",
-                url = leetcode_url 
-            )
-            embed.add_field(name="Name: ", value = name or "N/A", inline=True)
-            embed.add_field(name="LeetCode Username: ", value = username, inline=True)
-            embed.add_field(name="Rank: ", value = ranking, inline=True)
-            embed.add_field(name="Reputation: ", value = reputation, inline=True)
-            embed.add_field(name="Total Solved", value=f"**{solved_total}**", inline=False)
-            embed.add_field(name="Easy", value=easy_solved, inline=True)
-            embed.add_field(name="Medium", value=medium_solved, inline=True)
-            embed.add_field(name="Hard", value=hard_solved, inline=True)
-            embed.add_field(name="Total Submissions", value=total_sub_result_string, inline=False)
-            embed.add_field(name="Accepted Submissions", value=ac_result_string, inline=False)
+        
+        if not total_sub_string:
+            total_sub_string = "No submission data available."
 
-            await ctx.send(embed = embed)
+        if not ac_sub_string:
+            ac_sub_string = "No accepted submission data available."
+
+        
+        embed = discord.Embed(
+            title=f"{username}'s LeetCode Stats",
+            url=profile_url
+        )
+
+        embed.add_field(name="Name", value=name, inline=True)
+        embed.add_field(name="LeetCode Username", value=username, inline=True)
+        embed.add_field(name="Rank", value=ranking, inline=True)
+        embed.add_field(name="Reputation", value=reputation, inline=True)
+        embed.add_field(name="Total Solved", value=f"**{solved_total}**", inline=False)
+        embed.add_field(name="Easy", value=easy_solved, inline=True)
+        embed.add_field(name="Medium", value=medium_solved, inline=True)
+        embed.add_field(name="Hard", value=hard_solved, inline=True)
+        embed.add_field(name="Total Submissions", value=total_sub_string, inline=False)
+        embed.add_field(name="Accepted Submissions", value=ac_sub_string, inline=False)
+
+        await ctx.send(embed=embed)
+
 
     @commands.command()
     async def leetcode_leaderboard(self, ctx):
